@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files (in case you add any later)
+.env
+.env.local
+.env.*.local
+
+# Build output (not used currently, but future-proof)
+dist/
+build/
+.cache/
+
+# Notes - keep these private
+NOTES.md
+TODO.md
+*.private.md

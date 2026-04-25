@@ -82,6 +82,9 @@
     document.querySelectorAll('.delete-person').forEach(btn => {
       btn.onclick = () => deletePerson(btn.dataset.id, btn.dataset.name);
     });
+
+    // Wire up invitation actions (now that the panel is in the DOM)
+    wireUpInvitationActions(invitations);
   }
 
   function renderEmptyState() {
@@ -184,7 +187,12 @@
         </div>
       </div>
       <div class="form-group">
-        <label>الأدوار <span class="req">*</span></label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="margin:0;">الأدوار <span class="req">*</span></label>
+          <button type="button" id="m-add-role-quick" class="btn-link" style="font-size:12px; color:var(--gold-700); padding:0;">
+            + دور جديد
+          </button>
+        </div>
         <div id="m-roles" class="multi-pill-select"></div>
       </div>
       <div class="form-group" style="background:var(--cream-50); padding:14px; border-radius:4px; border:1px solid var(--line);">
@@ -223,6 +231,84 @@
       roles.map(r => ({ id: r.id, label: r.name_ar || r.name })),
       personRoleIds
     );
+
+    // Quick-add role from inside the person modal
+    modal.querySelector('#m-add-role-quick').onclick = () => openQuickRoleModal(modal, roles, personRoleIds);
+  }
+
+  // ---- Quick-add role (called from person modal) -----------------------------
+  function openQuickRoleModal(parentModal, currentRoles, currentSelected) {
+    const colors = ['#0d1b2a', '#c9a961', '#2d7a4a', '#1e3a5f', '#704a1a', '#a83232', '#5a3a1e', '#3a5e3e'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    const body = `
+      <div class="form-group">
+        <label>اسم الدور بالعربية <span class="req">*</span></label>
+        <input id="qr-name-ar" type="text" placeholder="مثلاً: مصمم العلامة التجارية" />
+      </div>
+      <div class="form-group">
+        <label>الاسم بالإنجليزية <span class="opt">(اختياري)</span></label>
+        <input id="qr-name-en" type="text" class="ltr" placeholder="Brand Designer" />
+      </div>
+      <div class="form-group">
+        <label>اللون</label>
+        <input id="qr-color" type="color" value="${randomColor}" style="width:60px; height:36px; padding:2px; border:1px solid var(--line); border-radius:3px; cursor:pointer;" />
+      </div>
+      <div class="form-group">
+        <label>وصف <span class="opt">(اختياري)</span></label>
+        <textarea id="qr-desc" placeholder="وصف مختصر للدور وإيه مسؤولياته"></textarea>
+      </div>
+      <div class="alert alert-info" style="margin-bottom:0; font-size:12.5px;">
+        💡 الدور هيتضاف لقائمة الأدوار العامة، ويتحدد تلقائياً للشخص الحالي.
+      </div>
+    `;
+
+    const { modal: qrModal, close } = openModal({
+      title: 'إضافة دور جديد',
+      body,
+      size: 'sm',
+      saveLabel: 'إضافة',
+      onSave: async () => {
+        const name_ar = qrModal.querySelector('#qr-name-ar').value.trim();
+        const name_en = qrModal.querySelector('#qr-name-en').value.trim() || name_ar;
+        const color = qrModal.querySelector('#qr-color').value;
+        const description = qrModal.querySelector('#qr-desc').value.trim() || null;
+
+        if (!name_ar) { toast('اسم الدور مطلوب', 'error'); return false; }
+
+        // Get next display_order
+        const { data: existing } = await sb.from('roles')
+          .select('display_order')
+          .order('display_order', { ascending: false })
+          .limit(1);
+        const nextOrder = (existing?.[0]?.display_order || 0) + 1;
+
+        const { data: newRole, error } = await sb.from('roles').insert({
+          name: name_en,
+          name_ar,
+          color,
+          description,
+          display_order: nextOrder,
+        }).select().single();
+
+        if (error) { toast('مشكلة: ' + error.message, 'error'); return false; }
+
+        toast(`تم إضافة "${name_ar}" ✓`);
+
+        // Add the new role to the parent modal's roles list and re-render the pills
+        currentRoles.push(newRole);
+        const updatedSelected = [...currentSelected, newRole.id];
+        setupMultiPillSelect(
+          parentModal.querySelector('#m-roles'),
+          currentRoles.map(r => ({ id: r.id, label: r.name_ar || r.name })),
+          updatedSelected
+        );
+        // Update the closure reference so subsequent additions work
+        currentSelected.push(newRole.id);
+
+        return true;
+      },
+    });
   }
 
   async function savePerson(modal, person, isYou) {
@@ -499,13 +585,5 @@ ${url}
     });
   }
 
-  PTL.routes['/people'] = async function() {
-    const result = await renderPeople();
-    // Re-fetch invitations for the wire-up (renderPeople loaded them but didn't return)
-    const { data: invitations } = await sb.from('invitations')
-      .select('*')
-      .eq('used', false)
-      .gte('expires_at', new Date().toISOString());
-    wireUpInvitationActions(invitations || []);
-  };
+  PTL.routes['/people'] = renderPeople;
 })();

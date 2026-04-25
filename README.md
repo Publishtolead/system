@@ -1,101 +1,131 @@
-# Publish to Lead — Internal Management System
+# Publish to Lead — Internal Operations System
 
-نظام إدارة داخلي لمتابعة الكتب والفريق والمهام. مبني بـ HTML/CSS/JS عادي + Supabase كـ backend.
+نظام إدارة داخلي لـ **Publish to Lead** — يتابع كل كتاب من أول لقاء مع المؤلف لحد التسليم النهائي.
 
-## الهيكل
+---
+
+## التشغيل السريع
+
+### للنشر على GitHub Pages
+راجع **[`DEPLOYMENT.md`](./DEPLOYMENT.md)** للدليل الكامل خطوة بخطوة.
+
+### للتشغيل المحلي
+1. شغّل كل الـ migrations في Supabase (راجع تحت)
+2. اعمل Storage bucket `book-assets` كـ Public
+3. افتح `index.html` في المتصفح
+
+---
+
+## المميزات
+
+- **20 خطوة workflow** قابلة للتعديل لكل كتاب
+- **نظام صلاحيات** ثلاثي: Admin / Manager / Member
+- **دعوات بالـ link** — أرسل لينك بالواتساب يدخل بيه أي عضو فريق
+- **تتبع الكتب** مع timeline + countdowns + projected dates
+- **تذكيرات يومية ذكية** بالواتساب (overdue/today/awaiting/revision/soon)
+- **رفع ملفات** أو **روابط Drive/Dropbox**
+- **Schedule banner** يقولك لو في الميعاد، متقدم، أو متأخر
+- **Activity log** لكل تحديث
+- **RTL Arabic** بشكل كامل (Cairo + Tajawal fonts)
+
+---
+
+## الـ Stack التقني
+
+- **Frontend:** HTML + CSS + Vanilla JavaScript (بدون أي framework)
+- **Backend:** Supabase (Postgres + Auth + Storage)
+- **Hosting:** GitHub Pages (مجاني)
+
+---
+
+## الـ Setup
+
+### 1. شغّل الـ Migrations في Supabase
+
+في **Supabase SQL Editor**، شغّل بالترتيب:
+
+| الملف | إيه فيه |
+|---|---|
+| `01_schema.sql` | الجداول الأساسية (people, roles, books, workflow_steps...) |
+| `02_migration.sql` | حذف الـ placeholders |
+| `03_migration.sql` | duration للمراحل |
+| `04_migration.sql` | owner + assets + tasks |
+| `05_migration.sql` | invitations |
+| `06_migration.sql` | manager role + drive links |
+
+### 2. اعمل Storage Bucket
+
+- Supabase Dashboard → **Storage** → **New bucket**
+- الاسم: `book-assets`
+- ✅ **Public bucket**
+- (راجع `STORAGE_SETUP.md` للتفاصيل)
+
+### 3. شغّل النظام
+
+افتح `index.html` في المتصفح.
+
+أول مستخدم بيعمل حساب يكون **Admin** تلقائياً.
+
+---
+
+## الـ Architecture
 
 ```
 publish-to-lead/
-├── index.html              ← الصفحة الرئيسية
-├── 02_migration.sql        ← Phase 2
-├── 03_migration.sql        ← Phase 3
-├── 04_migration.sql        ← Phase 3.5
-├── STORAGE_SETUP.md        ← دليل setup bucket الـ assets
-├── README.md
+├── index.html              ← شل النظام (login + onboarding + sidebar)
+├── DEPLOYMENT.md           ← دليل النشر على GitHub Pages
+├── STORAGE_SETUP.md        ← دليل setup الـ bucket
+├── *.sql                   ← migrations
 ├── css/
-│   └── main.css
+│   └── main.css            ← كل الـ styling (RTL, navy/gold theme)
 └── js/
-    ├── config.js
-    ├── utils.js
-    ├── auth.js
-    ├── router.js
-    ├── app.js
-    ├── components/         ← reusable widgets
-    │   ├── book-tasks.js   ← المهام الإضافية في صفحة الكتاب
-    │   └── book-assets.js  ← رفع الملفات
+    ├── config.js           ← Supabase client + permissions helpers
+    ├── utils.js            ← helpers (modals, toast, multi-pill, etc.)
+    ├── auth.js             ← login + signup + onboarding + invitations
+    ├── router.js           ← hash-based routing
+    ├── app.js              ← bootstrap (يتحمل آخر)
+    ├── components/
+    │   ├── book-tasks.js       ← مهام إضافية لكل كتاب
+    │   ├── book-assets.js      ← رفع ملفات + روابط Drive
+    │   ├── step-editor.js      ← تعديل مراحل لكتاب معين
+    │   └── message-preview.js  ← معاينة رسائل الواتساب
     └── pages/
         ├── dashboard.js
-        ├── people.js
+        ├── people.js       ← إدارة الفريق + دعوات
         ├── authors.js
         ├── roles.js
         ├── books.js
-        └── book-detail.js
+        ├── book-detail.js  ← القلب: timeline + countdowns + assignments
+        ├── tasks.js        ← cross-books + WhatsApp reminders
+        └── workflow.js     ← تعديل القالب الأساسي
 ```
 
-## التشغيل المحلي (للاختبار)
+---
 
-ببساطة افتح `index.html` في المتصفح. كل الملفات هتتحمل صح من الـ paths النسبية.
+## نظام الصلاحيات
 
-## التشغيل في Phase 2 (لو ده أول مرة)
+| الدور | يقدر يعمل |
+|---|---|
+| **Admin** | كل حاجة (إدارة فريق، فلو، حذف، تعديل) |
+| **Manager** | يشوف كل حاجة + يبعت رسائل، **بدون تعديل** |
+| **Member** | يشوف ويعدل في الكتب اللي شغّال عليها |
 
-1. شغّل `02_migration.sql` في Supabase SQL Editor
-2. افتح `index.html`
-3. اعمل refresh لو كنت داخل بالفعل
+شخص واحد ممكن يكون **Admin + Manager** في نفس الوقت.
 
-## Namespace
+---
 
-كل الكود بيتشارك state عبر `window.PTL`:
+## التحديثات المستقبلية
 
-- `PTL.config` — Supabase credentials + version
-- `PTL.sb` — Supabase client
-- `PTL.state` — current user, person, roles
-- `PTL.utils` — helper functions
-- `PTL.auth` — auth methods
-- `PTL.app` — app shell + routing
-- `PTL.routes` — registered route handlers
-
-## إضافة صفحة جديدة
-
-1. اعمل ملف جديد في `js/pages/yourpage.js`
-2. الكود الأساسي:
-
-```js
-(function() {
-  'use strict';
-  const { sb, state, utils } = PTL;
-  const { $ } = utils;
-
-  async function renderYourPage() {
-    $('app-content').innerHTML = `<h1>Your page</h1>`;
-  }
-
-  PTL.routes['/yourpage'] = renderYourPage;
-})();
+```bash
+git add .
+git commit -m "وصف التعديل"
+git push
 ```
 
-3. ضيف `<script src="js/pages/yourpage.js"></script>` في `index.html` قبل `js/app.js`
-4. ضيف زرار في الـ sidebar:
-```html
-<button class="nav-item" data-route="/yourpage">صفحتي</button>
-```
+GitHub Pages هيعمل deploy تلقائياً في 1-2 دقيقة.
 
-## النسخة
+---
 
-**v3.0 — Phase 3**
-- Books CRUD (إضافة/تعديل/حذف الكتب)
-- Auto-instantiation of all 20 workflow steps when a book is created
-- Book detail page with timeline grouped by phase
-- Stage management: start → in_progress → awaiting_approval → approved (with revision loop)
-- Auto-advance to next step (or parallel group) on approval
-- Countdown widgets: total days, days in current stage, expected completion date
-- Per-book role assignments (who's the AM/Writer/Editor/Designer for this book)
-- Activity log for stage transitions
-- Skip optional steps support
-- Hash routing now supports parameterized routes (e.g. `#/book/:id`)
+## License
 
-**v2.0 — Phase 2**
-- Onboarding (signup + multi-role select)
-- People CRUD
-- Authors CRUD
-- Roles CRUD
-- Dashboard updates (overdue, completion %, authors count)
+استخدام داخلي لـ Publish to Lead.

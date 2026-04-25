@@ -267,6 +267,81 @@
   // ----- App shell: logout button -----
   $('logout-btn').addEventListener('click', auth.logout);
 
+  // ----- Forgot password (login screen) -----
+  $('forgot-password').addEventListener('click', async () => {
+    const email = $('login-email').value.trim();
+    if (!email) {
+      showAlert('login-alert', 'اكتب الإيميل الأول، وبعدين دوس "نسيت كلمة المرور"');
+      $('login-email').focus();
+      return;
+    }
+
+    try {
+      const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      showAlert('login-alert',
+        `تم إرسال رابط إعادة تعيين كلمة المرور إلى ${email}. اتفقد إيميلك (وملف الـ spam لو ما لقيتش).`,
+        'success'
+      );
+    } catch (err) {
+      showAlert('login-alert', 'مشكلة: ' + (err.message || err));
+    }
+  });
+
+  // ----- Change password (sidebar) -----
+  $('change-password-btn').addEventListener('click', () => {
+    const body = `
+      <div style="font-size:13px; color:var(--ink-500); margin-bottom:16px; line-height:1.6;">
+        اكتب كلمة المرور الجديدة. هتستعملها في المرة الجاية اللي تسجل فيها دخول.
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور الجديدة <span class="req">*</span></label>
+        <input id="cp-new" type="password" class="ltr" placeholder="••••••••" autocomplete="new-password" />
+        <div class="form-help">6 حروف على الأقل</div>
+      </div>
+      <div class="form-group">
+        <label>تأكيد كلمة المرور <span class="req">*</span></label>
+        <input id="cp-confirm" type="password" class="ltr" placeholder="••••••••" autocomplete="new-password" />
+      </div>
+    `;
+
+    const { modal } = utils.openModal({
+      title: 'تغيير كلمة المرور',
+      body,
+      size: 'sm',
+      saveLabel: 'حفظ كلمة المرور الجديدة',
+      onSave: async () => {
+        const newPwd = modal.querySelector('#cp-new').value;
+        const confirmPwd = modal.querySelector('#cp-confirm').value;
+
+        if (!newPwd || !confirmPwd) {
+          utils.toast('املأ الحقلين', 'error');
+          return false;
+        }
+        if (newPwd.length < 6) {
+          utils.toast('كلمة المرور لازم 6 حروف على الأقل', 'error');
+          return false;
+        }
+        if (newPwd !== confirmPwd) {
+          utils.toast('كلمتا المرور غير متطابقتين', 'error');
+          return false;
+        }
+
+        try {
+          const { error } = await sb.auth.updateUser({ password: newPwd });
+          if (error) throw error;
+          utils.toast('تم تغيير كلمة المرور ✓');
+          return true;
+        } catch (err) {
+          utils.toast('مشكلة: ' + (err.message || err), 'error');
+          return false;
+        }
+      },
+    });
+  });
+
   // Expose
   PTL.auth = auth;
 })();
