@@ -110,6 +110,7 @@
       ${renderTimeline(stepsByPhase, people, assignMap, steps, projectedDates)}
       <div id="tasks-mount"></div>
       <div id="assets-mount"></div>
+      <div id="accounts-mount"></div>
     `;
 
     // Wire up handlers
@@ -118,6 +119,7 @@
     // Load components
     if (PTL.components?.bookTasks) PTL.components.bookTasks.load(book.id, 'tasks-mount', people);
     if (PTL.components?.bookAssets) PTL.components.bookAssets.load(book.id, 'assets-mount', steps);
+    if (PTL.components?.bookAccounts) PTL.components.bookAccounts.load(book.id, 'accounts-mount', book);
   }
 
   // ==========================================================================

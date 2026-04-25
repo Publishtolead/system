@@ -148,6 +148,7 @@
               <th>المسؤول</th>
               <th>المرحلة الحالية</th>
               <th>الحالة</th>
+              <th>السعر</th>
               <th>تاريخ البداية</th>
               <th></th>
             </tr>
@@ -195,6 +196,12 @@
         </td>
         <td>
           <span class="status-tag" style="background:${status.bg};color:${status.color};">${status.label}</span>
+        </td>
+        <td style="font-size: 13px;">
+          ${b.total_price_usd
+            ? `<div style="font-weight:700; color:var(--gold-700);">$${Number(b.total_price_usd).toLocaleString('en-US')}</div>
+               <div style="font-size:11px; color:var(--ink-500);" class="latin">≈ ${Math.round(Number(b.total_price_usd) * Number(PTL.settings?.exchange_rate_usd_egp || 50)).toLocaleString('en-US')} ج.م</div>`
+            : '<span style="color:var(--ink-400);">—</span>'}
         </td>
         <td style="font-size: 13px; color: var(--ink-500);" class="latin">
           ${formatDate(b.start_date)}
@@ -282,10 +289,71 @@
         <label>ملاحظات</label>
         <textarea id="m-notes">${escapeHtml(book?.notes || '')}</textarea>
       </div>
+
+      <!-- ============ PRICING SECTION ============ -->
+      <div style="margin-top:24px; padding-top:20px; border-top:2px dashed var(--line);">
+        <div style="font-size:13px; font-weight:700; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:14px;">
+          💰 التسعير وخطة الدفع <span style="color:var(--ink-400); font-weight:400; text-transform:none; letter-spacing:0;">(اختياري — تقدر تضيفه لاحقاً)</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>الباقة</label>
+            <select id="m-package">
+              <option value="">— بدون باقة (سعر مخصص) —</option>
+              ${(PTL.settings.packages || []).map(p => `
+                <option value="${p.id}" data-price="${p.price_usd}" ${book?.package_id === p.id ? 'selected' : ''}>
+                  ${escapeHtml(p.name_ar)} — $${p.price_usd}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>السعر النهائي بالدولار</label>
+            <input id="m-total-price" type="number" min="0" step="0.01" value="${book?.total_price_usd || ''}" placeholder="0" class="ltr" />
+            <div class="form-help" id="price-egp-preview" style="color:var(--gold-700); font-weight:600;"></div>
+          </div>
+        </div>
+
+        ${(PTL.settings.addons || []).length > 0 ? `
+          <div class="form-group">
+            <label>الإضافات (Add-ons)</label>
+            <div id="m-addons" style="display:flex; flex-direction:column; gap:6px; padding:10px; background:var(--cream-50); border-radius:4px; border:1px solid var(--line);">
+              ${(PTL.settings.addons || []).map(a => `
+                <label class="checkbox-row" style="margin:0; padding:6px 8px; background:white; border-radius:3px; cursor:pointer;">
+                  <input type="checkbox" class="addon-check" data-addon-id="${a.id}" data-price="${a.price_usd}" />
+                  <span style="flex:1;">
+                    <strong>${escapeHtml(a.name_ar)}</strong>
+                    <span style="color:var(--gold-700); font-weight:700;"> · $${a.price_usd}</span>
+                    ${a.description_ar ? `<span style="display:block; font-size:11.5px; color:var(--ink-500); margin-top:1px;">${escapeHtml(a.description_ar)}</span>` : ''}
+                  </span>
+                  <input type="number" class="addon-custom-price ltr" placeholder="سعر مخصص" min="0" step="0.01" style="width:90px; padding:4px 8px; font-size:12px; border:1px solid var(--line); border-radius:3px; display:none;" title="اتركه فاضي لاستخدام السعر الافتراضي" />
+                </label>
+              `).join('')}
+            </div>
+            <div class="form-help">دوس الإضافة لتفعيلها. السعر بيتضاف للإجمالي. اكتب سعر مخصص لو عايز تغيره لهذا الكتاب فقط.</div>
+          </div>
+        ` : ''}
+
+        ${!isEdit ? `
+          <div class="form-group" style="background:var(--cream-50); padding:12px; border-radius:4px; border:1px solid var(--line);">
+            <label class="checkbox-row" style="margin-bottom:0;">
+              <input id="m-create-plan" type="checkbox" checked />
+              <span><strong>إنشاء خطة دفع للكتاب</strong> — هتقسم السعر تلقائياً على ${(PTL.settings.default_payment_plan || []).length} أقساط حسب الإعدادات (تقدر تعدّلها بعدين)</span>
+            </label>
+          </div>
+        ` : `
+          <div class="alert alert-info" style="margin-bottom:0; font-size:12.5px;">
+            💡 خطة الدفع الموجودة للكتاب لن تتأثر بالتغييرات هنا. لتعديل الخطة، روح صفحة الكتاب → قسم الحسابات.
+          </div>
+        `}
+      </div>
+
       ${!isEdit ? `
-        <div class="alert alert-info" style="margin-bottom:0;">
+        <div class="alert alert-info" style="margin-bottom:0; margin-top:16px;">
           <strong>هيحصل إيه بعد الإضافة؟</strong><br>
           النظام هيعمل تلقائياً كل الـ 20 خطوة كـ tasks للكتاب، وأي دور فيه شخص واحد بس هيتعيّن مباشرة.
+          ${book ? '' : 'لو حددت سعر، هيتم إنشاء خطة دفع كمان.'}
         </div>
       ` : ''}
     `;
@@ -306,7 +374,6 @@
         if (!PTL.pages.authors?.openAuthorModal) return;
         PTL.pages.authors.openAuthorModal(null, {
           onCreated: (newAuthor) => {
-            // Add the new author to the dropdown and select it
             const sel = modal.querySelector('#m-author');
             const opt = document.createElement('option');
             opt.value = newAuthor.id;
@@ -316,6 +383,82 @@
           }
         });
       };
+    }
+
+    // Pricing wire-up
+    setupPricingUI(modal, book);
+  }
+
+  // ============================================================================
+  // PRICING UI: live preview + package/addon recalculation
+  // ============================================================================
+  function setupPricingUI(modal, book) {
+    const rate = Number(PTL.settings.exchange_rate_usd_egp || 50);
+    const packageSel = modal.querySelector('#m-package');
+    const totalInput = modal.querySelector('#m-total-price');
+    const egpPreview = modal.querySelector('#price-egp-preview');
+    const addonChecks = modal.querySelectorAll('.addon-check');
+
+    if (!packageSel) return; // no settings loaded — skip silently
+
+    function updateEgpPreview() {
+      const usd = parseFloat(totalInput.value) || 0;
+      if (usd > 0) {
+        const egp = Math.round(usd * rate).toLocaleString('en-US');
+        egpPreview.innerHTML = `≈ ${egp} ج.م`;
+      } else {
+        egpPreview.innerHTML = '';
+      }
+    }
+
+    function recalcTotal() {
+      const pkgPrice = packageSel.selectedOptions[0]?.dataset.price
+        ? parseFloat(packageSel.selectedOptions[0].dataset.price)
+        : 0;
+
+      let addonTotal = 0;
+      addonChecks.forEach(cb => {
+        if (!cb.checked) return;
+        const customInput = cb.parentElement.querySelector('.addon-custom-price');
+        const customVal = parseFloat(customInput.value);
+        const price = !isNaN(customVal) && customVal >= 0
+          ? customVal
+          : parseFloat(cb.dataset.price);
+        addonTotal += price;
+      });
+
+      totalInput.value = (pkgPrice + addonTotal).toFixed(2);
+      updateEgpPreview();
+    }
+
+    packageSel.onchange = recalcTotal;
+    totalInput.oninput = updateEgpPreview;
+
+    addonChecks.forEach(cb => {
+      const customInput = cb.parentElement.querySelector('.addon-custom-price');
+      cb.onchange = () => {
+        customInput.style.display = cb.checked ? 'block' : 'none';
+        recalcTotal();
+      };
+      customInput.oninput = recalcTotal;
+    });
+
+    // Pre-select existing book addons if editing
+    if (book?.id) {
+      sb.from('book_addons').select('*').eq('book_id', book.id).then(({ data }) => {
+        (data || []).forEach(ba => {
+          const cb = modal.querySelector(`.addon-check[data-addon-id="${ba.addon_id}"]`);
+          if (!cb) return;
+          cb.checked = true;
+          const customInput = cb.parentElement.querySelector('.addon-custom-price');
+          customInput.style.display = 'block';
+          if (ba.custom_price_usd != null) customInput.value = ba.custom_price_usd;
+        });
+        // Don't recalc total when editing — keep saved price
+        updateEgpPreview();
+      });
+    } else {
+      updateEgpPreview();
     }
   }
 
@@ -327,6 +470,12 @@
     if (!title) { toast('عنوان الكتاب مطلوب', 'error'); return false; }
     if (!author_id) { toast('لازم تختار مؤلف', 'error'); return false; }
 
+    // Read pricing fields (may not exist if settings unloaded)
+    const packageSel = modal.querySelector('#m-package');
+    const totalInput = modal.querySelector('#m-total-price');
+    const package_id = packageSel?.value || null;
+    const total_price_usd = totalInput?.value ? parseFloat(totalInput.value) : null;
+
     const payload = {
       title,
       subtitle: modal.querySelector('#m-subtitle').value.trim() || null,
@@ -337,20 +486,44 @@
       start_date: modal.querySelector('#m-start-date').value || null,
       target_launch_date: modal.querySelector('#m-target-date').value || null,
       notes: modal.querySelector('#m-notes').value.trim() || null,
+      package_id,
+      total_price_usd,
       updated_at: new Date().toISOString(),
     };
+
+    // Collect selected addons
+    const selectedAddons = [];
+    modal.querySelectorAll('.addon-check:checked').forEach(cb => {
+      const customInput = cb.parentElement.querySelector('.addon-custom-price');
+      const customVal = parseFloat(customInput.value);
+      selectedAddons.push({
+        addon_id: cb.dataset.addonId,
+        custom_price_usd: !isNaN(customVal) && customVal >= 0 ? customVal : null,
+      });
+    });
 
     if (isEdit) {
       payload.status = modal.querySelector('#m-status').value;
       const { error } = await sb.from('books').update(payload).eq('id', book.id);
       if (error) { toast(error.message, 'error'); return false; }
+
+      // Sync addons: delete then re-insert
+      await sb.from('book_addons').delete().eq('book_id', book.id);
+      if (selectedAddons.length) {
+        await sb.from('book_addons').insert(selectedAddons.map(a => ({ ...a, book_id: book.id })));
+      }
+
       toast('تم حفظ التعديلات');
       PTL.app.navigate();
     } else {
       // Create the book
-      const { data: newBook, error: bookErr } = await sb.from('books')
-        .insert(payload).select().single();
+      const { data: newBook, error: bookErr } = await sb.from('books').insert(payload).select().single();
       if (bookErr) { toast(bookErr.message, 'error'); return false; }
+
+      // Insert addons
+      if (selectedAddons.length) {
+        await sb.from('book_addons').insert(selectedAddons.map(a => ({ ...a, book_id: newBook.id })));
+      }
 
       // Auto-instantiate book_steps from workflow_steps
       const { data: workflowSteps, error: wfErr } = await sb.from('workflow_steps')
@@ -371,8 +544,7 @@
         const { error: stepsErr } = await sb.from('book_steps').insert(stepRows);
         if (stepsErr) { toast('الكتاب اتعمل لكن في مشكلة في إنشاء المراحل: ' + stepsErr.message, 'warn'); }
 
-        // Auto-assign: for each unique role used in the workflow,
-        // if exactly one person has that role, assign them automatically
+        // Auto-assign roles
         const usedRoleIds = [...new Set(workflowSteps.map(ws => ws.default_role_id).filter(Boolean))];
         const autoAssignments = [];
         usedRoleIds.forEach(roleId => {
@@ -380,16 +552,18 @@
             (p.person_roles || []).some(pr => pr.role_id === roleId)
           );
           if (eligible.length === 1) {
-            autoAssignments.push({
-              book_id: newBook.id,
-              role_id: roleId,
-              person_id: eligible[0].id,
-            });
+            autoAssignments.push({ book_id: newBook.id, role_id: roleId, person_id: eligible[0].id });
           }
         });
         if (autoAssignments.length) {
           await sb.from('book_assignments').insert(autoAssignments);
         }
+      }
+
+      // Auto-create payment plan if requested + price > 0
+      const createPlanCheck = modal.querySelector('#m-create-plan');
+      if (total_price_usd > 0 && createPlanCheck?.checked) {
+        await createPaymentPlanForBook(newBook.id, total_price_usd);
       }
 
       // Activity log
@@ -404,6 +578,39 @@
       window.location.hash = `#/book/${newBook.id}`;
     }
     return true;
+  }
+
+  // ============================================================================
+  // Create payment plan + installments from default template
+  // ============================================================================
+  async function createPaymentPlanForBook(bookId, totalUsd) {
+    const template = PTL.settings.default_payment_plan || [];
+    if (template.length === 0) return;
+
+    // Create the plan (USD)
+    const { data: plan, error: planErr } = await sb.from('payment_plans').insert({
+      book_id: bookId,
+      total_amount: totalUsd,
+      currency: 'USD',
+    }).select().single();
+
+    if (planErr) {
+      console.error('Failed to create plan:', planErr);
+      toast('الكتاب اتعمل لكن مشكلة في خطة الدفع', 'warn');
+      return;
+    }
+
+    // Create installments based on template percentages
+    const installments = template.map(t => ({
+      plan_id: plan.id,
+      installment_order: t.order,
+      label: t.label,
+      amount: Math.round(totalUsd * (t.percentage / 100) * 100) / 100,
+      due_date: null, // user can set later in book detail
+    }));
+
+    const { error: instErr } = await sb.from('payment_plan_installments').insert(installments);
+    if (instErr) console.error('Failed to create installments:', instErr);
   }
 
   async function deleteBook(id, title) {
