@@ -98,6 +98,8 @@
 
     state.person = person;
     state.personRoles = person.person_roles || [];
+    // Load global settings (exchange rate, packages, addons, payment plan)
+    if (PTL.loadSettings) await PTL.loadSettings();
     PTL.app.showApp();
   };
 
