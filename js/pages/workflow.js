@@ -161,7 +161,12 @@
             ${role ? `<span style="font-size:11px; color:${role.color}; font-weight:600;">${escapeHtml(role.name_ar || role.name)}</span>` : '<span style="font-size:11px; color:var(--ink-400);">بدون دور</span>'}
             <span style="font-size:11px; color:var(--ink-500);">${s.default_duration_days || 5} يوم</span>
             ${s.has_revision_loop ? '<span style="font-size:11px; color:var(--gold-700);">🔁 يقبل تعديلات</span>' : ''}
-            ${s.is_parallel ? `<span style="font-size:11px; color:var(--gold-700);">⫶ بالتوازي (${s.parallel_group || 'group'})</span>` : ''}
+            ${s.is_parallel
+              ? (() => {
+                  const target = s.parallel_with_step_id ? allSteps.find(x => x.id === s.parallel_with_step_id) : null;
+                  return `<span style="font-size:11px; color:var(--gold-700);">⫶ بالتوازي مع: ${target ? escapeHtml(target.name_ar) : (s.parallel_group || 'غير محدد')}</span>`;
+                })()
+              : ''}
             ${s.is_optional ? '<span style="font-size:11px; color:var(--ink-400);">اختياري</span>' : ''}
           </div>
         </div>
@@ -232,9 +237,18 @@
         <div class="form-group">
           <label class="checkbox-row">
             <input id="m-parallel" type="checkbox" ${step?.is_parallel ? 'checked' : ''} />
-            <span>⫶ بالتوازي مع غيرها</span>
+            <span>⫶ بالتوازي مع مرحلة تانية</span>
           </label>
-          <input id="m-parallel-group" type="text" value="${escapeHtml(step?.parallel_group || '')}" placeholder="اسم المجموعة (مثلاً: design_phase)" style="margin-top:6px; ${step?.is_parallel ? '' : 'opacity:0.5;'}" />
+          <select id="m-parallel-with" style="margin-top:6px; ${step?.is_parallel ? '' : 'opacity:0.5;'}" ${step?.is_parallel ? '' : 'disabled'}>
+            <option value="">— اختار المرحلة المتوازية —</option>
+            ${(allSteps || [])
+              .filter(s => !step || s.id !== step.id)  // can't be parallel with self
+              .map(s => `<option value="${s.id}" ${step?.parallel_with_step_id === s.id ? 'selected' : ''}>${s.step_order}. ${escapeHtml(s.name_ar)}</option>`)
+              .join('')}
+          </select>
+          <div class="form-help" id="parallel-hint" style="${step?.is_parallel ? '' : 'display:none;'}">
+            هتبدأ في نفس وقت المرحلة دي (مش بعدها)
+          </div>
         </div>
       </div>
 
@@ -262,12 +276,16 @@
       onSave: async () => saveWorkflowStep(modal, step, allSteps),
     });
 
-    // Toggle parallel_group field based on parallel checkbox
+    // Toggle parallel-with select based on parallel checkbox
     const parallelCheck = modal.querySelector('#m-parallel');
-    const parallelGroup = modal.querySelector('#m-parallel-group');
+    const parallelSel = modal.querySelector('#m-parallel-with');
+    const parallelHint = modal.querySelector('#parallel-hint');
     parallelCheck.onchange = () => {
-      parallelGroup.style.opacity = parallelCheck.checked ? '1' : '0.5';
-      if (!parallelCheck.checked) parallelGroup.value = '';
+      const on = parallelCheck.checked;
+      parallelSel.disabled = !on;
+      parallelSel.style.opacity = on ? '1' : '0.5';
+      parallelHint.style.display = on ? '' : 'none';
+      if (!on) parallelSel.value = '';
     };
   }
 
@@ -277,6 +295,13 @@
     if (!nameAr) { toast('اسم المرحلة مطلوب', 'error'); return false; }
 
     const isParallel = modal.querySelector('#m-parallel').checked;
+    const parallelWithId = isParallel ? (modal.querySelector('#m-parallel-with').value || null) : null;
+
+    if (isParallel && !parallelWithId) {
+      toast('اختار المرحلة اللي هتشتغل معاها بالتوازي', 'error');
+      return false;
+    }
+
     const payload = {
       name_ar: nameAr,
       phase: modal.querySelector('#m-phase').value || null,
@@ -285,7 +310,8 @@
       has_revision_loop: modal.querySelector('#m-revision').checked,
       is_optional: modal.querySelector('#m-optional').checked,
       is_parallel: isParallel,
-      parallel_group: isParallel ? (modal.querySelector('#m-parallel-group').value.trim() || null) : null,
+      parallel_with_step_id: parallelWithId,
+      parallel_group: null,  // deprecated, but cleared explicitly
     };
 
     const applyToExisting = modal.querySelector('#m-apply-existing').checked;
@@ -331,19 +357,39 @@
   // Propagates template changes to active books
   async function applyChangesToActiveBooks(workflowStepId, payload, isEdit) {
     if (isEdit) {
-      // Update matching book_steps that haven't been completed/skipped
-      const updates = {};
-      if (payload.name_ar) updates.name_ar = payload.name_ar;
-      if (payload.default_duration_days) updates.default_duration_days = payload.default_duration_days;
-      if (payload.has_revision_loop !== undefined) updates.has_revision_loop = payload.has_revision_loop;
-      if (payload.is_parallel !== undefined) updates.is_parallel = payload.is_parallel;
-      if (payload.parallel_group !== undefined) updates.parallel_group = payload.parallel_group;
-      updates.updated_at = new Date().toISOString();
+      // For each active book, find the matching book_step and update
+      const { data: activeBooks } = await sb.from('books').select('id').eq('status', 'active');
+      if (!activeBooks?.length) return;
 
-      await sb.from('book_steps')
-        .update(updates)
-        .eq('workflow_step_id', workflowStepId)
-        .not('status', 'in', '(approved,skipped)');
+      for (const book of activeBooks) {
+        const { data: bookSteps } = await sb.from('book_steps')
+          .select('id, workflow_step_id, status')
+          .eq('book_id', book.id);
+        if (!bookSteps?.length) continue;
+
+        const myBookStep = bookSteps.find(bs => bs.workflow_step_id === workflowStepId);
+        if (!myBookStep) continue;
+        if (['approved', 'skipped'].includes(myBookStep.status)) continue;
+
+        // Resolve the workflow_step_id reference to the matching book_step in this book
+        let parallelWithBookStepId = null;
+        if (payload.parallel_with_step_id) {
+          const targetBookStep = bookSteps.find(bs => bs.workflow_step_id === payload.parallel_with_step_id);
+          parallelWithBookStepId = targetBookStep?.id || null;
+        }
+
+        const updates = {
+          name_ar: payload.name_ar,
+          default_duration_days: payload.default_duration_days,
+          has_revision_loop: payload.has_revision_loop,
+          is_parallel: payload.is_parallel,
+          parallel_with_step_id: parallelWithBookStepId,
+          parallel_group: null,  // clear deprecated field
+          updated_at: new Date().toISOString(),
+        };
+
+        await sb.from('book_steps').update(updates).eq('id', myBookStep.id);
+      }
     } else {
       // For new step: add it to all active books
       const { data: activeBooks } = await sb.from('books').select('id').eq('status', 'active');

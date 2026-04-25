@@ -541,8 +541,30 @@
           parallel_group: ws.parallel_group || null,
           default_duration_days: ws.default_duration_days || 5,
         }));
-        const { error: stepsErr } = await sb.from('book_steps').insert(stepRows);
+        const { data: insertedSteps, error: stepsErr } = await sb.from('book_steps')
+          .insert(stepRows)
+          .select('id, workflow_step_id');
         if (stepsErr) { toast('الكتاب اتعمل لكن في مشكلة في إنشاء المراحل: ' + stepsErr.message, 'warn'); }
+        else if (insertedSteps?.length) {
+          // Pass 2: now that book_steps exist, set parallel_with_step_id
+          // by mapping workflow_step_id → book_step_id
+          const wsToBs = new Map(insertedSteps.map(bs => [bs.workflow_step_id, bs.id]));
+          const updates = workflowSteps
+            .filter(ws => ws.parallel_with_step_id)
+            .map(ws => {
+              const myBookStepId = wsToBs.get(ws.id);
+              const targetBookStepId = wsToBs.get(ws.parallel_with_step_id);
+              if (!myBookStepId || !targetBookStepId) return null;
+              return { id: myBookStepId, parallel_with_step_id: targetBookStepId };
+            })
+            .filter(Boolean);
+
+          for (const u of updates) {
+            await sb.from('book_steps')
+              .update({ parallel_with_step_id: u.parallel_with_step_id })
+              .eq('id', u.id);
+          }
+        }
 
         // Auto-assign roles
         const usedRoleIds = [...new Set(workflowSteps.map(ws => ws.default_role_id).filter(Boolean))];

@@ -46,6 +46,33 @@
   // ==========================================================================
   // MAIN RENDER
   // ==========================================================================
+  // ==========================================================================
+  // Backward-compat: convert parallel_with_step_id → synthetic parallel_group
+  // so older logic keeps working transparently.
+  // Steps that point to each other (or to the same target) end up in one group.
+  // ==========================================================================
+  function syncParallelGroupFromRefs(steps) {
+    const stepById = new Map(steps.map(s => [s.id, s]));
+
+    steps.forEach(s => {
+      if (!s.is_parallel) return;
+      if (s.parallel_group) return;  // already set (legacy data)
+      if (!s.parallel_with_step_id) return;
+
+      // Build group key from the pair of IDs (smaller first) so both sides match
+      const target = stepById.get(s.parallel_with_step_id);
+      if (!target) return;
+      const ids = [s.id, target.id].sort();
+      const groupKey = `pair:${ids[0]}:${ids[1]}`;
+
+      s.parallel_group = groupKey;
+      // Also set on the target so it's bidirectional
+      if (target.is_parallel || true) {
+        target.parallel_group = target.parallel_group || groupKey;
+      }
+    });
+  }
+
   async function renderBookDetail(params) {
     const bookId = params.id;
     if (!bookId) {
@@ -86,6 +113,11 @@
     const people = peopleRes.data || [];
     const assignments = assignmentsRes.data || [];
     const workflowSteps = workflowRes.data || [];
+
+    // Backward compat: synthesize parallel_group from parallel_with_step_id
+    // so existing logic (which relies on parallel_group) keeps working.
+    // Steps that link to each other via parallel_with_step_id get the same group key.
+    syncParallelGroupFromRefs(steps);
 
     // Build assignments map (role_id → person_id)
     const assignMap = {};
@@ -132,23 +164,22 @@
     let cursor = book.start_date ? new Date(book.start_date) : new Date();
 
     let i = 0;
+    const handled = new Set();  // step ids already projected via a parallel group
+
     while (i < sorted.length) {
       const step = sorted[i];
 
+      // Skip if already handled as part of a parallel group
+      if (handled.has(step.id)) { i++; continue; }
+
       if (step.parallel_group) {
-        // Collect all consecutive steps in the same parallel group
-        const groupSteps = [];
-        let j = i;
-        while (j < sorted.length && sorted[j].parallel_group === step.parallel_group) {
-          groupSteps.push(sorted[j]);
-          j++;
-        }
-        const maxDur = Math.max(...groupSteps.map(s => s.default_duration_days || 5));
+        // Collect ALL steps in the same group (not just consecutive ones)
+        const groupSteps = sorted.filter(s => s.parallel_group === step.parallel_group);
 
         groupSteps.forEach(s => {
+          handled.add(s.id);
           // For completed/in-progress steps, anchor to actual data
           if (s.status === 'approved' && s.completed_at) {
-            // No projection needed (use actual)
             projections.set(s.id, { projectedStart: s.started_at ? new Date(s.started_at) : new Date(cursor), projectedDue: new Date(s.completed_at) });
           } else if (s.started_at) {
             projections.set(s.id, { projectedStart: new Date(s.started_at), projectedDue: s.due_date ? new Date(s.due_date) : new Date(new Date(s.started_at).getTime() + (s.default_duration_days || 5) * 86400000) });
@@ -160,7 +191,7 @@
         // Move cursor by the latest end
         const groupEnds = groupSteps.map(s => projections.get(s.id).projectedDue.getTime());
         cursor = new Date(Math.max(...groupEnds));
-        i = j;
+        i++;
       } else {
         const dur = step.default_duration_days || 5;
         if (step.status === 'approved' && step.completed_at) {
@@ -498,17 +529,18 @@
   function renderPhase(phase, steps, people, allSteps, projectedDates) {
     const info = PHASES[phase] || PHASES.other;
     const groups = [];
-    let currentGroup = null;
+    const handled = new Set();
+
     steps.forEach(s => {
+      if (handled.has(s.id)) return;
+
       if (s.parallel_group) {
-        if (currentGroup?.parallel === s.parallel_group) {
-          currentGroup.steps.push(s);
-        } else {
-          currentGroup = { parallel: s.parallel_group, steps: [s] };
-          groups.push(currentGroup);
-        }
+        // Find ALL steps in the same parallel group within this phase
+        const groupSteps = steps.filter(x => x.parallel_group === s.parallel_group);
+        groupSteps.forEach(gs => handled.add(gs.id));
+        groups.push({ parallel: s.parallel_group, steps: groupSteps });
       } else {
-        currentGroup = null;
+        handled.add(s.id);
         groups.push({ parallel: null, steps: [s] });
       }
     });
@@ -530,11 +562,13 @@
   }
 
   function renderParallelGroup(steps, people, allSteps, projectedDates) {
+    const stepNames = steps.map(s => s.name_ar).join(' ↔ ');
     return `
-      <div style="border:1px dashed var(--line-dark); border-radius:4px; padding:10px; background:rgba(201,169,97,0.04);">
-        <div style="font-size:11px; font-weight:700; color:var(--gold-700); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+      <div style="border:1px dashed var(--gold-500); border-radius:4px; padding:12px; background:rgba(201,169,97,0.06);">
+        <div style="font-size:11.5px; font-weight:700; color:var(--gold-700); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v18M16 3v18"/></svg>
-          بالتوازي
+          <span>مراحل متوازية · ${steps.length} مرحلة</span>
+          <span style="font-weight:400; color:var(--ink-500); text-transform:none; letter-spacing:0;">— بتشتغل في نفس الوقت</span>
         </div>
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:8px;">
           ${steps.map(s => renderStepCard(s, people, allSteps, projectedDates)).join('')}
@@ -573,6 +607,10 @@
               ${step.has_revision_loop ? `<span style="font-size:10.5px; color:var(--gold-700);">🔁 يقبل تعديلات</span>` : ''}
               ${isOptional ? `<span style="font-size:10.5px; color:var(--ink-400);">اختياري</span>` : ''}
               ${step.revision_count > 0 ? `<span style="font-size:10.5px; color:var(--warning);">${step.revision_count} تعديل</span>` : ''}
+              ${step.is_parallel && step.parallel_with_step_id ? (() => {
+                const target = allSteps.find(x => x.id === step.parallel_with_step_id);
+                return target ? `<span style="font-size:10.5px; color:var(--gold-700);">⫶ مع: ${escapeHtml(target.name_ar)}</span>` : '';
+              })() : ''}
             </div>
           </div>
         </div>
