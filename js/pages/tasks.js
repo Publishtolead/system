@@ -307,15 +307,31 @@
       lines.push(``);
     }
 
+    // Upcoming (further out) — show with details, not just count.
+    // Even if a deadline is 20 days away, if it's the next thing they
+    // should be working on, they should see what it is.
+    if (buckets.upcoming.length > 0) {
+      lines.push(`📅 جاي بعد كده:`);
+      buckets.upcoming.slice(0, 5).forEach(it => {
+        lines.push(formatItemLine(it, `بعد ${it.daysLeft} ${it.daysLeft === 1 ? 'يوم' : 'أيام'}`));
+      });
+      if (buckets.upcoming.length > 5) lines.push(`  + ${buckets.upcoming.length - 5} مهمة أخرى`);
+      lines.push(``);
+    }
+
     // Upcoming (just count)
     if (buckets.upcoming.length > 0) {
       lines.push(`📅 + ${buckets.upcoming.length} مهمة لاحقة`);
       lines.push(``);
     }
 
-    // No deadline
+    // No deadline — show all with details (steps and tasks both)
     if (buckets.no_date.length > 0) {
-      lines.push(`📋 + ${buckets.no_date.length} مهمة بدون تاريخ محدد`);
+      lines.push(`📋 بدون deadline:`);
+      buckets.no_date.slice(0, 5).forEach(it => {
+        lines.push(formatItemLine(it, `مفتوحة`));
+      });
+      if (buckets.no_date.length > 5) lines.push(`  + ${buckets.no_date.length - 5} مهمة أخرى`);
       lines.push(``);
     }
 
