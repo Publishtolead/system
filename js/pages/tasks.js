@@ -48,21 +48,25 @@
         .not('assignee_id', 'is', null)
         .eq('book.status', 'active')
         .order('due_date', { ascending: true, nullsFirst: false }),
-      // All custom tasks not done
+      // All custom tasks not done. Note: filtering on a joined column
+      // (book.status) doesn't always work reliably in Supabase, so we filter
+      // in JS after the data loads.
       sb.from('book_tasks')
         .select(`
           id, book_id, title, status, priority, due_date, description,
-          book:books!inner(id, title, status),
+          book:books(id, title, status),
           assignee:people(id, name, phone)
         `)
         .neq('status', 'done')
-        .eq('book.status', 'active')
         .order('due_date', { ascending: true, nullsFirst: false }),
       sb.from('people').select('id, name, phone').eq('active', true).order('name'),
     ]);
 
     const steps = (stepsRes.data || []).map(s => ({ ...s, _kind: 'step' }));
-    const tasks = (tasksRes.data || []).map(t => ({ ...t, _kind: 'task' }));
+    // Filter out tasks whose book is not active (handle in JS, not in query)
+    const tasks = (tasksRes.data || [])
+      .filter(t => t.book?.status === 'active')
+      .map(t => ({ ...t, _kind: 'task' }));
     const people = peopleRes.data || [];
 
     const all = [...steps, ...tasks];
