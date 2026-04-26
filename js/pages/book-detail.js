@@ -653,11 +653,17 @@
         } else {
           actions.push(`<button class="btn btn-primary btn-sm step-action" data-action="approve" data-step-id="${step.id}">اعتمد المرحلة</button>`);
         }
+        if (PTL.perms.canManageSystem()) {
+          actions.push(`<button class="btn btn-ghost btn-sm step-action" data-action="reset_to_pending" data-step-id="${step.id}" title="رجّع المرحلة لانتظار دورها — تختفي من الرسائل وتفتح تلقائياً لما اللي قبلها يخلص">↺ رجّع لـ pending</button>`);
+        }
         break;
       case 'awaiting_approval':
         actions.push(`<button class="btn btn-primary btn-sm step-action" data-action="approve" data-step-id="${step.id}">اعتمد</button>`);
         if (step.has_revision_loop) {
           actions.push(`<button class="btn btn-ghost btn-sm step-action" data-action="revision" data-step-id="${step.id}">↻ ارجع للتعديل</button>`);
+        }
+        if (PTL.perms.canManageSystem()) {
+          actions.push(`<button class="btn btn-ghost btn-sm step-action" data-action="reset_to_pending" data-step-id="${step.id}" title="رجّع المرحلة لانتظار دورها">↺ رجّع لـ pending</button>`);
         }
         break;
       case 'needs_revision':
@@ -753,6 +759,27 @@
     try {
       switch (action) {
         case 'start':
+          // Check if there are earlier steps still in progress
+          const sorted = [...allSteps].sort((a, b) => a.step_order - b.step_order);
+          const blockingStatuses = ['in_progress', 'awaiting_approval', 'needs_revision'];
+          const earlierActive = sorted.filter(s =>
+            s.step_order < step.step_order &&
+            blockingStatuses.includes(s.status) &&
+            // Steps in the same parallel group don't block each other
+            !(step.parallel_group && s.parallel_group === step.parallel_group)
+          );
+
+          if (earlierActive.length > 0) {
+            const names = earlierActive.map(s => `"${s.name_ar}"`).join('، ');
+            const ok = await utils.confirmDialog({
+              title: 'لسه فيه مراحل سابقة شغّالة',
+              message: `المراحل دي لسه ما خلصتش: ${names}.\n\nالطبيعي تستنى لحد ما تخلص. هل أنت متأكد إنك عايز تبدأ "${step.name_ar}" دلوقتي؟`,
+              confirmLabel: 'ابدأ على أي حال',
+              destructive: false,
+            });
+            if (!ok) return;
+          }
+
           await startStep(step, allSteps, assignMap);
           await logActivity(book.id, step.id, 'step_started', `بدأت مرحلة: ${step.name_ar}`);
           toast('تم بدء المرحلة');
@@ -783,6 +810,24 @@
           await updateStep(step.id, { status: 'in_progress', completed_at: null });
           await logActivity(book.id, step.id, 'step_reopened', `إعادة فتح: ${step.name_ar}`);
           toast('تم إعادة فتح المرحلة');
+          break;
+        case 'reset_to_pending':
+          // Confirm with user — this clears progress and waits for proper turn
+          const confirmReset = await utils.confirmDialog({
+            title: 'رجّع المرحلة لانتظار دورها',
+            message: `"${step.name_ar}" هترجع لـ pending. هتختفي من الرسائل اليومية، وهتفتح تلقائياً لما المراحل اللي قبلها تخلص.\n\nالـ progress الحالي هيتمسح (started_at + due_date).`,
+            confirmLabel: 'رجّعها',
+            destructive: false,
+          });
+          if (!confirmReset) return;
+          await updateStep(step.id, {
+            status: 'pending',
+            started_at: null,
+            due_date: null,
+            completed_at: null,
+          });
+          await logActivity(book.id, step.id, 'step_reset', `رجّع لانتظار دورها: ${step.name_ar}`);
+          toast('تم الرجوع لـ pending — هتفتح تلقائياً لما ييجي دورها');
           break;
       }
       // Reload page
@@ -825,15 +870,36 @@
       const siblings = allSteps.filter(s =>
         s.parallel_group === approvedStep.parallel_group && s.id !== approvedStep.id
       );
-      // Re-check each sibling's CURRENT status from DB (since we just approved this one)
       const allDone = siblings.every(s => ['approved', 'skipped'].includes(s.status));
       if (!allDone) return;
     }
 
-    // Find next pending step (lowest step_order)
+    // Find the next pending step that should be opened.
+    // CRITICAL: Don't open a step if any earlier step (lower step_order) is still
+    // in_progress, awaiting_approval, or needs_revision. This prevents jumping
+    // ahead in the workflow when intermediate steps are still in flight.
     const sorted = [...allSteps].sort((a, b) => a.step_order - b.step_order);
+
+    // Find first pending step
     const nextStep = sorted.find(s => s.status === 'pending' && s.id !== approvedStep.id);
     if (!nextStep) return;
+
+    // Check that all earlier steps are done (approved or skipped).
+    // Steps in the same parallel group as nextStep don't block it.
+    const blockingStatuses = ['pending', 'in_progress', 'awaiting_approval', 'needs_revision'];
+    const earlierUnfinished = sorted.filter(s =>
+      s.step_order < nextStep.step_order &&
+      s.id !== approvedStep.id &&
+      blockingStatuses.includes(s.status) &&
+      // Allow earlier steps that are pending — they'll be picked up next time.
+      // What we really want to block on is in_progress / awaiting / revision.
+      s.status !== 'pending'
+    );
+
+    if (earlierUnfinished.length > 0) {
+      // Earlier work is still going on — don't auto-advance yet
+      return;
+    }
 
     // If next step is parallel, start ALL siblings in same parallel_group
     if (nextStep.parallel_group) {
