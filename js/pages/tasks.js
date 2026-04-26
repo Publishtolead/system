@@ -48,14 +48,16 @@
         .not('assignee_id', 'is', null)
         .eq('book.status', 'active')
         .order('due_date', { ascending: true, nullsFirst: false }),
-      // All custom tasks not done. Note: filtering on a joined column
-      // (book.status) doesn't always work reliably in Supabase, so we filter
-      // in JS after the data loads.
+      // All custom tasks not done. Note:
+      // - book_tasks has TWO FKs to people (assignee_id, created_by) so we
+      //   must specify which relationship to use via !book_tasks_assignee_id_fkey
+      // - filtering on a joined column (book.status) doesn't always work in
+      //   Supabase, so we filter in JS after the data loads.
       sb.from('book_tasks')
         .select(`
           id, book_id, title, status, priority, due_date, description,
           book:books(id, title, status),
-          assignee:people(id, name, phone)
+          assignee:people!book_tasks_assignee_id_fkey(id, name, phone)
         `)
         .neq('status', 'done')
         .order('due_date', { ascending: true, nullsFirst: false }),
@@ -68,27 +70,6 @@
       .filter(t => t.book?.status === 'active')
       .map(t => ({ ...t, _kind: 'task' }));
     const people = peopleRes.data || [];
-
-    // ============ DEBUG START ============
-    console.log('========== PTL TASKS DEBUG v8.0 ==========');
-    console.log('Steps Response Error:', stepsRes.error);
-    console.log('Tasks Response Error:', tasksRes.error);
-    console.log('Raw tasks from DB (before filter):', tasksRes.data);
-    console.log('Raw tasks count:', (tasksRes.data || []).length);
-    console.log('Tasks after active filter:', tasks);
-    console.log('Tasks count after filter:', tasks.length);
-    if (tasks.length > 0) {
-      tasks.forEach(t => {
-        console.log(`Task: "${t.title}" | assignee: ${t.assignee?.name || 'NONE'} | book: ${t.book?.title || 'NONE'} (${t.book?.status})`);
-      });
-    } else if ((tasksRes.data || []).length > 0) {
-      console.log('Tasks were loaded but filtered out. Raw books:');
-      (tasksRes.data || []).forEach(t => {
-        console.log(`  Task "${t.title}": book =`, t.book);
-      });
-    }
-    console.log('==========================================');
-    // ============ DEBUG END ============
 
     const all = [...steps, ...tasks];
     const filtered = applyFilters(all, today, state.person.id);
