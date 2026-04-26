@@ -69,6 +69,27 @@
       .map(t => ({ ...t, _kind: 'task' }));
     const people = peopleRes.data || [];
 
+    // ============ DEBUG START ============
+    console.log('========== PTL TASKS DEBUG v8.0 ==========');
+    console.log('Steps Response Error:', stepsRes.error);
+    console.log('Tasks Response Error:', tasksRes.error);
+    console.log('Raw tasks from DB (before filter):', tasksRes.data);
+    console.log('Raw tasks count:', (tasksRes.data || []).length);
+    console.log('Tasks after active filter:', tasks);
+    console.log('Tasks count after filter:', tasks.length);
+    if (tasks.length > 0) {
+      tasks.forEach(t => {
+        console.log(`Task: "${t.title}" | assignee: ${t.assignee?.name || 'NONE'} | book: ${t.book?.title || 'NONE'} (${t.book?.status})`);
+      });
+    } else if ((tasksRes.data || []).length > 0) {
+      console.log('Tasks were loaded but filtered out. Raw books:');
+      (tasksRes.data || []).forEach(t => {
+        console.log(`  Task "${t.title}": book =`, t.book);
+      });
+    }
+    console.log('==========================================');
+    // ============ DEBUG END ============
+
     const all = [...steps, ...tasks];
     const filtered = applyFilters(all, today, state.person.id);
 
