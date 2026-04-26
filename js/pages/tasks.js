@@ -319,12 +319,6 @@
       lines.push(``);
     }
 
-    // Upcoming (just count)
-    if (buckets.upcoming.length > 0) {
-      lines.push(`📅 + ${buckets.upcoming.length} مهمة لاحقة`);
-      lines.push(``);
-    }
-
     // No deadline — show all with details (steps and tasks both)
     if (buckets.no_date.length > 0) {
       lines.push(`📋 بدون deadline:`);
